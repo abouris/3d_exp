@@ -1,0 +1,301 @@
+<html><head><base href="https://websim.ai/interactive3dviewer" />
+<title>Enhanced 3D Shape Viewer with Saved Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script type="text/javascript" nonce="3ef5692b142a4420908a6375302" src="//local.adguard.org?ts=1720691028772&amp;type=content-script&amp;dmn=websim.ai&amp;url=https%3A%2F%2Fwebsim.ai%2Fapi%2Fhtml%3Fpayload%3D%257B%2522id%2522%253A%2522nLwvHGZDtX1Yw7R4F%2522%252C%2522debug%2522%253A%2522true%2522%252C%2522raw%2522%253A%2522true%2522%257D&amp;app=com.google.Chrome&amp;css=3&amp;js=1&amp;rel=1&amp;rji=1&amp;sbe=1"></script>
+<script type="text/javascript" nonce="3ef5692b142a4420908a6375302" src="//local.adguard.org?ts=1720691028772&amp;name=AdGuard%20Assistant&amp;name=AdGuard%20Extra&amp;type=user-script"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TeapotGeometry.js"></script>
+<style>
+  body { margin: 0; overflow: hidden; background-color: #000; }
+  #textureUpload { position: absolute; top: 10px; left: 10px; z-index: 100; }
+  #textureUpload input { display: none; }
+  #textureUpload label { background-color: #4CAF50; color: white; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+</style>
+</head>
+<body>
+<div id="textureUpload">
+  <label for="customTexture">Upload Custom Texture</label>
+  <input type="file" id="customTexture" accept="image/*">
+</div>
+<script>
+let scene, camera, renderer, shape, material, gui, controls, envMap, ground, directionalLight;
+const textureLoader = new THREE.TextureLoader();
+const rgbeLoader = new THREE.RGBELoader();
+
+const backgroundOptions = [
+  { name: 'Venice Sunset', url: 'https://threejs.org/examples/textures/equirectangular/venice_sunset_1k.hdr' },
+  { name: 'Factory Sunset', url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/industrial_sunset_02_1k.hdr' },
+  { name: 'Night Sky', url: 'https://threejs.org/examples/textures/equirectangular/pedestrian_overpass_1k.hdr' },
+  { name: 'Quarry', url: 'https://threejs.org/examples/textures/equirectangular/quarry_01_1k.hdr' },
+  { name: 'Royal Esplanade', url: 'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr' },
+  { name: 'Studio', url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_03_1k.hdr' },
+  { name: 'Forest', url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/forest_slope_1k.hdr' },
+  { name: 'City', url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/city_night_street_1k.hdr' }
+];
+
+const textureOptions = [
+  { name: 'None', url: null },
+  { name: 'Wood', url: 'https://threejs.org/examples/textures/hardwood2_diffuse.jpg' },
+  { name: 'Metal', url: 'https://threejs.org/examples/textures/metal_diffuse.jpg' },
+  { name: 'Leather', url: 'https://threejs.org/examples/textures/leather/leather_diffuse.jpg' },
+  { name: 'Ceramic', url: 'https://threejs.org/examples/textures/ceramic_diffuse.jpg' }
+];
+
+let customTextures = [];
+
+const savedSettings = {
+  shape: 'Teapot',
+  resolution: 'Normal',
+  texture: 'None',
+  color: '#ffffff',
+  roughness: 0,
+  metalness: 1,
+  normalScale: 1.5,
+  displacementScale: 0,
+  envMapIntensity: 3,
+  autoRotate: true,
+  background: 'Quarry',
+  shadowOpacity: 0.53,
+  shadowColor: '#000000',
+  shadowDistance: 0.5  // Using default value as it wasn't specified
+};
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  material = new THREE.MeshStandardMaterial({
+    color: savedSettings.color,
+    roughness: savedSettings.roughness,
+    metalness: savedSettings.metalness,
+    normalScale: new THREE.Vector2(savedSettings.normalScale, savedSettings.normalScale),
+    displacementScale: savedSettings.displacementScale,
+    envMapIntensity: savedSettings.envMapIntensity
+  });
+
+  loadEnvironmentMap(backgroundOptions.find(opt => opt.name === savedSettings.background).url);
+
+  createShape(savedSettings.shape, savedSettings.resolution);
+
+  camera.position.z = 3;
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.25;
+  controls.enableZoom = true;
+  controls.autoRotate = savedSettings.autoRotate;
+
+  setupLighting();
+  setupGround();
+  setupGUI();
+  setupCustomTextureUpload();
+  animate();
+}
+
+function setupLighting() {
+  directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  directionalLight.position.set(5, 5, 5);
+  directionalLight.castShadow = true;
+  directionalLight.shadow.mapSize.width = 1024;
+  directionalLight.shadow.mapSize.height = 1024;
+  directionalLight.shadow.camera.near = 0.5;
+  directionalLight.shadow.camera.far = 20;
+  scene.add(directionalLight);
+}
+
+function setupGround() {
+  const groundGeometry = new THREE.PlaneGeometry(10, 10);
+  const groundMaterial = new THREE.ShadowMaterial({ 
+    opacity: savedSettings.shadowOpacity,
+    color: savedSettings.shadowColor
+  });
+  ground = new THREE.Mesh(groundGeometry, groundMaterial);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -savedSettings.shadowDistance;
+  ground.receiveShadow = true;
+  scene.add(ground);
+}
+
+function loadTexture(textureOption) {
+  if (textureOption && textureOption.url) {
+    textureLoader.load(textureOption.url, function(texture) {
+      material.map = texture;
+      material.needsUpdate = true;
+    });
+  } else {
+    material.map = null;
+    material.needsUpdate = true;
+  }
+}
+
+function loadEnvironmentMap(url) {
+  rgbeLoader.load(url, function(texture) {
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    envMap = pmremGenerator.fromEquirectangular(texture).texture;
+    pmremGenerator.dispose();
+
+    scene.background = envMap;
+    scene.environment = envMap;
+    material.envMap = envMap;
+    material.needsUpdate = true;
+  }, undefined, (err) => {
+    console.error('An error occurred loading the environment map:', err);
+  });
+}
+
+function createShape(shapeType, resolution) {
+  if (shape) scene.remove(shape);
+  
+  let geometry;
+  const resolutionMultiplier = resolution === 'Normal' ? 1 : (resolution === '4x' ? 2 : 4);
+  
+  switch(shapeType) {
+    case 'Teapot':
+      geometry = new THREE.TeapotGeometry(0.5, 15 * resolutionMultiplier);
+      break;
+    case 'Sphere':
+      geometry = new THREE.SphereGeometry(0.5, 64 * resolutionMultiplier, 32 * resolutionMultiplier);
+      break;
+    case 'Cube':
+      geometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      break;
+    case 'Torus':
+      geometry = new THREE.TorusGeometry(0.4, 0.2, 32 * resolutionMultiplier, 100 * resolutionMultiplier);
+      break;
+    case 'Knot':
+      geometry = new THREE.TorusKnotGeometry(0.4, 0.1, 100 * resolutionMultiplier, 16 * resolutionMultiplier);
+      break;
+    case 'Cylinder':
+      geometry = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 32 * resolutionMultiplier);
+      break;
+    case 'Cone':
+      geometry = new THREE.ConeGeometry(0.4, 0.8, 32 * resolutionMultiplier);
+      break;
+    case 'Octahedron':
+      geometry = new THREE.OctahedronGeometry(0.5);
+      break;
+    case 'Dodecahedron':
+      geometry = new THREE.DodecahedronGeometry(0.5);
+      break;
+    case 'Icosahedron':
+      geometry = new THREE.IcosahedronGeometry(0.5);
+      break;
+  }
+  
+  shape = new THREE.Mesh(geometry, material);
+  shape.castShadow = true;
+  scene.add(shape);
+}
+
+function setupGUI() {
+  gui = new dat.GUI();
+  const params = Object.assign({}, savedSettings);
+
+  gui.add(params, 'shape', ['Teapot', 'Sphere', 'Cube', 'Torus', 'Knot', 'Cylinder', 'Cone', 'Octahedron', 'Dodecahedron', 'Icosahedron']).onChange(value => createShape(value, params.resolution));
+  gui.add(params, 'resolution', ['Normal', '4x', '8x']).onChange(value => createShape(params.shape, value));
+  gui.add(params, 'texture', textureOptions.map(opt => opt.name)).onChange(value => {
+    const selectedTexture = textureOptions.find(opt => opt.name === value);
+    loadTexture(selectedTexture);
+  });
+  gui.addColor(params, 'color').onChange(value => material.color.set(value));
+  gui.add(params, 'roughness', 0, 1).onChange(value => material.roughness = value);
+  gui.add(params, 'metalness', 0, 1).onChange(value => material.metalness = value);
+  gui.add(params, 'normalScale', 0, 2).onChange(value => {
+    if (material.normalMap) material.normalScale.set(value, value);
+  });
+  gui.add(params, 'displacementScale', 0, 0.2).onChange(value => {
+    if (material.displacementMap) material.displacementScale = value;
+  });
+  gui.add(params, 'envMapIntensity', 0, 5).onChange(value => material.envMapIntensity = value);
+  gui.add(params, 'autoRotate').onChange(value => controls.autoRotate = value);
+  gui.add(params, 'background', backgroundOptions.map(opt => opt.name)).onChange(value => {
+    const selectedOption = backgroundOptions.find(opt => opt.name === value);
+    loadEnvironmentMap(selectedOption.url);
+  });
+  gui.add(params, 'shadowOpacity', 0, 1).onChange(value => {
+    ground.material.opacity = value;
+  });
+  gui.addColor(params, 'shadowColor').onChange(value => {
+    ground.material.color.set(value);
+  });
+  gui.add(params, 'shadowDistance', 0, 2).onChange(value => {
+    ground.position.y = -value;
+  });
+}
+
+function setupCustomTextureUpload() {
+  const fileInput = document.getElementById('customTexture');
+  fileInput.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          
+          const customTextureName = `Custom ${customTextures.length + 1}`;
+          customTextures = [{
+            name: customTextureName,
+            texture: texture,
+            isCustom: true
+          }];
+
+          material.map = texture;
+          material.needsUpdate = true;
+
+          // Update GUI
+          updateGUIWithNewTexture(customTextureName);
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+function updateGUIWithNewTexture(newTextureName) {
+  const textureController = gui.__controllers.find(controller => controller.property === 'texture');
+  if (textureController) {
+    const updatedOptions = [...textureOptions.map(opt => opt.name), newTextureName];
+    textureController.remove();
+    gui.add({ texture: newTextureName }, 'texture', updatedOptions).onChange(value => {
+      if (value === newTextureName) {
+        material.map = customTextures[0].texture;
+      } else {
+        const selectedTexture = textureOptions.find(opt => opt.name === value);
+        loadTexture(selectedTexture);
+      }
+      material.needsUpdate = true;
+    });
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.addEventListener('resize', onWindowResize, false);
+
+init();
+</script>
+</body></html>
